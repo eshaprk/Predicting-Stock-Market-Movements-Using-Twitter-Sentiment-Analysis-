@@ -1,0 +1,143 @@
+---
+title: "Project"
+author: "Prateek"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+getwd()
+## setwd("C:/Users/Prateek/Box Sync/NU Data Science/Machine Learning/Project")
+```
+
+
+```{r}
+
+library(zoo)
+library(xts)
+library(chron)
+library(lubridate)
+library(date)        
+
+```
+
+## Choosing Apple's stock dataset for ARIMA analysis fruther
+
+```{r}
+
+apple <- read.csv("aapl.csv", header = TRUE,stringsAsFactors=FALSE,sep="")
+str(apple)
+apple$Date <- as.Date(apple$Date, format = "%d-%b-%y")
+
+```
+ 
+## Making data frame to analyse only in Stock Date and associated Closing Prices.
+```{r}
+
+df = data.frame(apple$Date,apple$Close)
+summary(df)
+str(df)
+
+```
+
+
+```{r}
+
+plot(apple$Date, apple$Close, xlab = "Time", ylab = "Closing Prices",type = "l", col = "red", main = "Closing price of Apple") 
+
+```
+
+## There seems to be a lot of randomness in the series and the adf.test results prove that the series is non-stationary (I(1)). Which means that the series will have to be first differenced to make is stationary. 
+
+```{r}
+library(tseries, quietly = T)
+
+plot.ts(diff(log(apple$Close)))
+acf(diff(log(apple$Close)))
+adf.test(apple$Close)
+stock_ret <- 100 * diff(log(apple$Close))
+plot.ts(stock_ret)
+
+```
+
+## Auto-regressive moving average (ARMA) model
+###  Lets try and fit an ARMA model to our Apple returns data and see how the results turn out.
+
+### If time series is stationary, or if data has been transformed to a stationary time series by differencing d times, the next step is to select the appropriate ARIMA model, which means finding the values of most appropriate values of p and q for an ARIMA(p,d,q) model. To do this, you usually need to examine the correlogram and partial correlogram of the stationary time series.
+
+### To plot a correlogram and partial correlogram, we can use the "acf()" and "pacf()" functions in R, respectively. To get the actual values of the autocorrelations and partial autocorrelations, we set "plot=FALSE" in the "acf()" and "pacf()" functions.
+
+```{r}
+
+acf(stock_ret)
+acf(stock_ret, plot = FALSE)
+
+```
+
+### We see from the correlogram that the autocorrelation at lag 22 (-0.129) exceeds the significance bounds, but all other autocorrelations between lags 1-23 do not exceed the significance bounds.
+
+### To plot the partial correlogram for lags 1-23 for the once differenced time series of stocks record, and get the values of the partial autocorrelations, we use the "pacf()" function,
+
+```{r}
+
+pacf(stock_ret)
+pacf(stock_ret, plot = FALSE)
+
+```
+
+### The partial correlogram shows that the partial autocorrelations at lags 22 exceeds the significance bounds, is negative, and is slowly decreasing in magnitude with increasing lag (lag 23: -0.002).
+
+### Since the correlogram is zero after lag 2, and the partial correlogram tails off to zero after lag 3, this means that the following ARMA (autoregressive moving average) models are possible for the time series of first differences:
+
+### an ARMA(3,0) model, that is, an autoregressive model of order p=3, since the partial autocorrelogram is zero after lag 3, and the autocorrelogram tails off to zero (although perhaps too abruptly for this model to be appropriate)
+an ARMA(0,2) model, that is, a moving average model of order q=2, since the autocorrelogram is zero after lag 2 and the partial autocorrelogram tails off to zero
+
+### an ARMA(p,q) model, that is, a mixed model with p and q greater than 0, since the autocorrelogram and partial correlogram tail off to zero (although the correlogram probably tails off to zero too abruptly for this model to be appropriate)
+
+### The ARMA(3,0) model has 3 parameters, the ARMA(0,2) model has 2 parameter, and the ARMA(p,q) model has at least 2 parameters. Therefore, Therefore, using the principle of parsimony, the ARMA(0,2) model and ARMA(p,q) model are equally good candidate models, I am choosing ARMA(p,q) model for further analysis.
+
+```{r}
+
+stock_arima <- arima(stock_ret, order= c(2,1,2))
+summary(stock_arima)
+
+```
+
+
+### We can now use the ARIMA model to make forecasts for future values of the time series, using the "forecast.Arima()" function in the "forecast" R package. 
+
+```{r}
+library("forecast")
+stock_forecast <- forecast.Arima(stock_arima)
+summary(stock_forecast)
+plot.forecast(stock_forecast)
+
+```
+
+### We can see that AR as well as MA coefficients are all significant at 99%, evident from the small p-values. Since our objective here is to forecast future returns lets evaluate the performance of the ARMA model in terms of out-of-sample forecast performance. For this we will divide the data into 2 parts, on one we will train the model and on the other we will test the out-of-sample forecast ability.
+
+### Here We have used ARIMA function to fit the model as the object type "arima" is easily compatible with forecast() and predict() function. ARIMA is nothing by a normal ARMA model with the order of integration included as an argument to the function. In our case, our series was I(1) but we have first differenced it already so in the ARIMA function we will keep the "I" part = 0.
+
+
+```{r}
+
+stock_ret_train <- stock_ret[1:(0.9 * length(stock_ret))]  # Train dataset
+stock_ret_test <- stock_ret[(0.9 * length(stock_ret) + 1):length(stock_ret)]  # Test dataset
+
+fit <- arima(stock_ret_train, order = c(2, 1 , 2))
+arma.preds <- predict(fit, n.ahead = (length(stock_ret) - (0.9 * length(stock_ret))))$pred
+arma.forecast <- forecast(fit, h = 25)
+
+plot(arma.forecast, main = "ARMA forecasts for stock returns")
+
+accuracy(arma.preds, stock_ret_test)[2]  # RMSE values
+
+```
+
+### The performance of the ARIMA model seems to be good which is evident from the lower RMSE of the ARIMAX model.
